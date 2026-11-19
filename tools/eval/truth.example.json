@@ -1,0 +1,34 @@
+{
+  "photos": [
+    {
+      "file": "S01.jpg",
+      "group": "S",
+      "cards": [
+        {
+          "box_2d": [120, 80, 880, 920],
+          "fields": {
+            "name_zh": "王小明",
+            "name_en": "Hsiao-Ming Wang",
+            "title_zh": "研發經理",
+            "title_en": "R&D Manager",
+            "department": "",
+            "company_zh": "範例生技股份有限公司",
+            "company_en": "Example Bio Inc.",
+            "mobile": "+886912000000",
+            "phone": "+886200000000",
+            "phone_ext": "123",
+            "fax": "",
+            "email": "hm.wang@example.com",
+            "website": "https://www.example.com",
+            "address_zh": "台北市範例路 1 號",
+            "address_en": "",
+            "line_id": "",
+            "linkedin": "",
+            "other_social": ""
+          }
+        }
+      ]
+    },
+    { "file": "N01.jpg", "group": "N", "cards": [] }
+  ]
+}
