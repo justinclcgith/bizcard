@@ -7,10 +7,13 @@ var APP_VERSION = '0.1.0';
 var MAX_AUTH_FAILS_PER_HOUR = 20;
 var REQUEST_CACHE_SECONDS = 600;
 
-/** action 名稱 → 處理函式（其他檔案在此登記）。 */
-var ACTIONS = {
-  ping: handlePing
-};
+/** action 名稱 → 處理函式。用函式回傳，避免 GAS 檔案載入順序影響。 */
+function getActions_() {
+  return {
+    ping: handlePing,
+    recognize: handleRecognize
+  };
+}
 
 function doPost(e) {
   var req;
@@ -39,7 +42,8 @@ function dispatch_(req) {
     return fail_('UNAUTHORIZED', '存取權杖錯誤');
   }
 
-  var handler = ACTIONS[req.action];
+  var actions = getActions_();
+  var handler = Object.prototype.hasOwnProperty.call(actions, req.action) ? actions[req.action] : null;
   if (!handler) return fail_('BAD_REQUEST', '不支援的動作：' + String(req.action));
 
   var cacheKey = req.requestId ? 'req_' + String(req.requestId).slice(0, 80) : null;
