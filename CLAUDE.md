@@ -20,7 +20,9 @@ cd app && npm ci           # 安裝
 npm run dev                # 本機開發（需 .env.local 的 VITE_DEFAULT_GAS_URL 可留空，於設定頁輸入）
 npm test                   # Vitest 單元測試
 npm run build              # 產出 dist/
-npm run lint && npm run typecheck
+npm run typecheck
+npm run e2e                # Playwright（Pixel 7 模擬，自動 build 並啟動 preview）
+cd gas && npm test         # 後端與評測腳本的單元測試
 cd gas && npx clasp push   # 推送後端（需 JC 已 clasp login，見 docs/08）
 node tools/eval/run.mjs    # 驗收用辨識評測（見 docs/07）
 ```
