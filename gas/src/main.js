@@ -11,7 +11,15 @@ var REQUEST_CACHE_SECONDS = 600;
 function getActions_() {
   return {
     ping: handlePing,
-    recognize: handleRecognize
+    recognize: handleRecognize,
+    findDuplicates: handleFindDuplicates,
+    saveCards: handleSaveCards,
+    list: handleList,
+    getContact: handleGetContact,
+    updateContact: handleUpdateContact,
+    deleteContact: handleDeleteContact,
+    getImage: handleGetImage,
+    stats: handleStats
   };
 }
 
