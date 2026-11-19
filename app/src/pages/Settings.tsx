@@ -1,6 +1,7 @@
 /** 設定頁：後端網址、權杖、辨識引擎（docs/01 F7）。 */
 import { useState } from 'preact/hooks';
-import { ping } from '../api/client';
+import { getStats, ping } from '../api/client';
+import type { Stats } from '../api/client';
 import { errorMessage } from '../lib/flow';
 import { isValidGasUrl, loadSettings, parseSetupPayload, saveSettings } from '../lib/settings';
 import type { Settings as S } from '../lib/settings';
@@ -107,7 +108,40 @@ export function Settings() {
           </label>
         ))}
       </fieldset>
+      <StatsBox enabled={!!s.gasUrl && !!s.token} />
       <p class="muted small">權杖只存在這支手機的瀏覽器中，不會上傳到其他地方。</p>
     </section>
+  );
+}
+
+function thisMonth(): string {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Taipei' }).format(new Date()).slice(0, 7);
+}
+
+/** 本月用量與估計費用（docs/01 F7）。 */
+function StatsBox({ enabled }: { enabled: boolean }) {
+  const [st, setSt] = useState<Stats | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  async function load() {
+    setLoading(true);
+    setErr(null);
+    try { setSt(await getStats(thisMonth())); } catch (e) { setErr(errorMessage(e)); }
+    setLoading(false);
+  }
+  return (
+    <fieldset>
+      <legend>本月用量</legend>
+      {st ? (
+        <dl class="stats" data-testid="stats">
+          <dt>月份</dt><dd>{st.month}</dd>
+          <dt>辨識次數</dt><dd>{st.recognitions}</dd>
+          <dt>名片張數</dt><dd>{st.cards}</dd>
+          <dt>估計費用</dt><dd>US$ {st.estCostUsd.toFixed(3)}</dd>
+        </dl>
+      ) : <p class="muted small">按下按鈕查詢。</p>}
+      {err && <p class="notice error">{err}</p>}
+      <button class="secondary" onClick={load} disabled={!enabled || loading} data-testid="load-stats">{loading ? '查詢中…' : '查詢用量'}</button>
+    </fieldset>
   );
 }

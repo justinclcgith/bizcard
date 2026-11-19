@@ -4,8 +4,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { fileURLToPath } from 'node:url';
 
-const SRC = path.resolve(__dirname, '../src');
+// 也會被 app/e2e 的 Playwright 測試（ESM）拿來當假後端，所以不用 __dirname
+const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src');
 
 class FakeRange {
   constructor(sheet, row, col, nr, nc) { Object.assign(this, { sheet, row, col, nr, nc }); }

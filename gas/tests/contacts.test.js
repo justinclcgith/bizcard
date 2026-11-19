@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { makeGas } from './fakeGas.js';
+import { makeGas } from './fakeGas.mjs';
 
 const TOKEN = 'secret-token-1234567890';
 const IMG = { mime: 'image/jpeg', base64: Buffer.from('jpegdata').toString('base64') };

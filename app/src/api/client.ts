@@ -4,6 +4,9 @@ import type {
   ApiErrorBody, Box, CardResult, CompareResult, Orientation, Provider, ProviderChoice, RecognizeResult
 } from '../lib/types';
 import { loadSettings } from '../lib/settings';
+import { parseContact, parseHistory } from '../lib/contact';
+import type { Contact, TitleHistoryEntry } from '../lib/contact';
+import type { CardFields } from '../lib/types';
 
 export class ApiError extends Error {
   constructor(public code: string, message: string) {
@@ -141,4 +144,83 @@ export async function recognize(base64: string, provider: ProviderChoice,
   side: 'front' | 'back' = 'front'): Promise<RecognizeResult | CompareResult> {
   const d = await callApi('recognize', { provider, side, image: { mime: 'image/jpeg', base64 } });
   return provider === 'compare' ? parseCompare(d) : parseRecognize(d);
+}
+
+// ---- P4：儲存、同步、聯絡人 ----
+
+export interface DuplicateCandidate { contactId: string; score: number; reasons: string[]; contact: Contact }
+
+export async function findDuplicates(cards: Array<{ tempId: string; fields: CardFields }>): Promise<Record<string, DuplicateCandidate[]>> {
+  const d = await callApi('findDuplicates', { cards });
+  const out: Record<string, DuplicateCandidate[]> = {};
+  if (!isObj(d) || !Array.isArray(d.matches)) throw new ApiError('BAD_RESPONSE', '比對結果格式錯誤');
+  for (const m of d.matches) {
+    if (!isObj(m) || !Array.isArray(m.candidates)) continue;
+    out[str(m.tempId)] = m.candidates.filter(isObj).map((c) => ({
+      contactId: str(c.contactId), score: num(c.score),
+      reasons: Array.isArray(c.reasons) ? c.reasons.map(str) : [], contact: parseContact(c.contact)
+    }));
+  }
+  return out;
+}
+
+export interface SaveCardInput {
+  tempId: string;
+  fields: Record<string, string>;
+  front: { mime: string; base64: string };
+  back: { mime: string; base64: string } | null;
+  aiProvider: string;
+  aiModel: string;
+  mergeIntoId: string | null;
+}
+
+export async function saveCards(sourcePhoto: { mime: string; base64: string }, batch: { tags: string[]; event: string; metDate: string },
+  cards: SaveCardInput[], requestId: string): Promise<Array<{ tempId: string; contact: Contact; merged: boolean; titleChanged: boolean }>> {
+  const d = await callApi('saveCards', { sourcePhoto, batch, cards, requestId });
+  if (!isObj(d) || !Array.isArray(d.contacts)) throw new ApiError('BAD_RESPONSE', '儲存結果格式錯誤');
+  return d.contacts.filter(isObj).map((x) => ({
+    tempId: str(x.tempId), contact: parseContact(x.contact), merged: x.merged === true, titleChanged: x.titleChanged === true
+  }));
+}
+
+export async function listContacts(since: string | null): Promise<{ contacts: Contact[]; serverTime: string }> {
+  const d = await callApi('list', { since });
+  if (!isObj(d) || !Array.isArray(d.contacts)) throw new ApiError('BAD_RESPONSE', '同步資料格式錯誤');
+  return { contacts: d.contacts.map(parseContact), serverTime: str(d.serverTime) };
+}
+
+export async function getContact(id: string): Promise<{ contact: Contact; titleHistory: TitleHistoryEntry[] }> {
+  const d = await callApi('getContact', { id });
+  if (!isObj(d)) throw new ApiError('BAD_RESPONSE', '聯絡人資料格式錯誤');
+  return { contact: parseContact(d.contact), titleHistory: Array.isArray(d.titleHistory) ? d.titleHistory.map(parseHistory) : [] };
+}
+
+export async function updateContact(id: string, fields: Record<string, string>, baseUpdatedAt: string,
+  recordTitleChange: boolean): Promise<{ contact: Contact; conflict: boolean }> {
+  const d = await callApi('updateContact', { id, fields, baseUpdatedAt, recordTitleChange });
+  if (!isObj(d)) throw new ApiError('BAD_RESPONSE', '更新結果格式錯誤');
+  return { contact: parseContact(d.contact), conflict: d.conflict === true };
+}
+
+export async function deleteContact(id: string): Promise<Contact> {
+  const d = await callApi('deleteContact', { id });
+  if (!isObj(d)) throw new ApiError('BAD_RESPONSE', '刪除結果格式錯誤');
+  return parseContact(d.contact);
+}
+
+export async function getImage(fileId: string, size: 'thumb' | 'full'): Promise<Blob> {
+  const d = await callApi('getImage', { fileId, size });
+  if (!isObj(d) || typeof d.base64 !== 'string') throw new ApiError('BAD_RESPONSE', '圖片格式錯誤');
+  const bin = atob(d.base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: str(d.mime) || 'image/jpeg' });
+}
+
+export interface Stats { month: string; recognitions: number; cards: number; estCostUsd: number }
+
+export async function getStats(month: string): Promise<Stats> {
+  const d = await callApi('stats', { month });
+  if (!isObj(d)) throw new ApiError('BAD_RESPONSE', '統計資料格式錯誤');
+  return { month: str(d.month), recognitions: num(d.recognitions), cards: num(d.cards), estCostUsd: num(d.estCostUsd) };
 }
