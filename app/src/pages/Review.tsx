@@ -6,10 +6,16 @@ import { CardForm } from '../components/CardForm';
 import { CropPreview } from '../components/CropPreview';
 import { deleteDraft, getDraft, saveDraft } from '../db/db';
 import type { Draft, DraftCard } from '../db/db';
-import { cardTitle, manualCard, toDraftCards } from '../lib/draftOps';
+import { cardTitle, manualCard, mergeBack, toDraftCards } from '../lib/draftOps';
+import { isSavable } from '../lib/contact';
+import { checkDuplicates, commitDraft } from '../lib/saveFlow';
+import type { DuplicateCandidate } from '../api/client';
+import { DuplicateDialog } from '../components/DuplicateDialog';
+import { BackConflicts } from '../components/BackConflicts';
+import type { BackConflict } from '../components/BackConflicts';
 import { errorMessage, recognizeCrop, runRecognition } from '../lib/flow';
 import { pairByIoU, rotateBoxCW } from '../lib/geometry';
-import { cropCard, rotateImage90 } from '../lib/image';
+import { cropCard, prepareImage, rotateImage90 } from '../lib/image';
 import { to } from '../lib/paths';
 import type { Box, CardFieldKey, Orientation, Provider } from '../lib/types';
 
@@ -34,6 +40,8 @@ export function Review() {
   const [selected, setSelected] = useState<number | null>(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dups, setDups] = useState<Record<string, DuplicateCandidate[]> | null>(null);
+  const [backConflicts, setBackConflicts] = useState<{ index: number; items: BackConflict[] } | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   const photoUrl = useObjectUrl(draft?.photo.blob);
 
@@ -103,18 +111,88 @@ export function Review() {
     setBusy(null);
   }
 
+  async function addBack(i: number, file: File | undefined) {
+    if (!draft || !file) return;
+    setBusy(`辨識第 ${i + 1} 張背面…`);
+    setError(null);
+    try {
+      const img = await prepareImage(file, 1200);
+      const card = draft.cards[i];
+      if (!card) return;
+      const provider: Provider = card.provider === 'gemini' ? 'gemini' : 'claude';
+      const r = await recognizeCrop(img, provider, 'back');
+      const first = r.cards[0];
+      const back = { blob: img.blob, width: img.width, height: img.height };
+      if (!first) {
+        updateCard(i, (c) => ({ ...c, back }));
+        setError('背面沒有辨識到文字，已保留背面圖片');
+      } else {
+        const { card: merged, conflicts } = mergeBack(card, first);
+        updateCard(i, () => ({ ...merged, back }));
+        if (conflicts.length) setBackConflicts({ index: i, items: conflicts });
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function startSave() {
+    if (!draft) return;
+    const bad = draft.cards.findIndex((c) => !isSavable(c.fields));
+    if (bad >= 0) {
+      setSelected(bad);
+      setError(`第 ${bad + 1} 張至少要填姓名、公司或 Email 其中之一`);
+      return;
+    }
+    if (!draft.cards.length) { setError('沒有可儲存的名片'); return; }
+    setBusy('比對是否已存在…');
+    setError(null);
+    try {
+      const found = await checkDuplicates(draft);
+      if (Object.values(found).some((x) => x.length)) {
+        setDups(found);
+        setBusy(null);
+        return;
+      }
+      await doSave({});
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(null);
+    }
+  }
+
+  async function doSave(targets: Record<string, string | null>) {
+    if (!draft) return;
+    setDups(null);
+    setBusy('儲存中…');
+    setError(null);
+    try {
+      clearTimeout(saveTimer.current);
+      const r = await commitDraft(draft, targets);
+      const merged = r.filter((x) => x.merged).length;
+      const msg = `已儲存 ${r.length} 張${merged ? `（其中 ${merged} 張合併到既有聯絡人）` : ''}`;
+      sessionStorage.setItem('bizcard.flash', msg);
+      route(to(''));
+    } catch (e) {
+      setError(`儲存失敗：${errorMessage(e)}。草稿已保留，可稍後再試。`);
+      setBusy(null);
+    }
+  }
+
   async function discard() {
     if (!draft) return;
     await deleteDraft(draft.localId);
     route(to('scan'));
   }
 
-  if (draft.status === 'error' || draft.status === 'recognizing') {
+  if (draft.status === 'error' || draft.status === 'recognizing' || draft.status === 'queued') {
     return (
       <section class="page">
         <h1>確認名片</h1>
         {photoUrl && <img class="photo-thumb" src={photoUrl} alt="原始照片" />}
-        <p class="notice error">{draft.status === 'error' ? `辨識失敗：${draft.error}` : '辨識尚未完成'}</p>
+        <p class="notice error">{draft.status === 'error' ? `辨識失敗：${draft.error}` : draft.status === 'queued' ? '離線時拍攝，等待連線後辨識' : '辨識尚未完成'}</p>
         <div class="row">
           <button onClick={retry} disabled={!!busy}>{busy ?? '重新辨識'}</button>
           <button class="secondary" onClick={discard}>捨棄</button>
@@ -173,6 +251,12 @@ export function Review() {
           <div class="row small-tools">
             <button class="secondary small" onClick={() => updateCard(i, (x) => ({ ...x, orientation: ROTATE_NEXT[x.orientation] }))}>↻ 轉正</button>
             <button class="secondary small" disabled={!!busy} onClick={() => reRecognize(i)}>重新辨識此框</button>
+            <label class={busy ? 'button secondary small disabled' : 'button secondary small'}>
+              {c.back ? '重拍背面' : '加拍背面'}
+              <input type="file" accept="image/*" capture="environment" hidden disabled={!!busy}
+                data-testid={`back-${i + 1}`}
+                onChange={(e) => { const t = e.target as HTMLInputElement; void addBack(i, t.files?.[0]); t.value = ''; }} />
+            </label>
             <button class="danger small" data-testid={`delete-${i + 1}`} onClick={(e) => {
               e.stopPropagation();
               update((d) => ({ ...d, cards: d.cards.filter((_, j) => j !== i) }));
@@ -186,8 +270,18 @@ export function Review() {
 
       <div class="sticky-actions">
         <button class="secondary" onClick={discard}>捨棄</button>
-        <button disabled title="儲存功能將在下一階段（P4）提供">儲存（開發中）</button>
+        <button data-testid="save" disabled={!!busy || !draft.cards.length} onClick={startSave}>{busy === '儲存中…' ? busy : `儲存 ${draft.cards.length} 張`}</button>
       </div>
+      {dups && (
+        <DuplicateDialog cards={draft.cards} candidates={dups} onCancel={() => setDups(null)} onConfirm={(t) => void doSave(t)} />
+      )}
+      {backConflicts && (
+        <BackConflicts items={backConflicts.items} onDone={(picked) => {
+          const i = backConflicts.index;
+          updateCard(i, (c) => ({ ...c, fields: { ...c.fields, ...picked } }));
+          setBackConflicts(null);
+        }} />
+      )}
     </section>
   );
 }

@@ -4,6 +4,8 @@ import { Home } from './pages/Home';
 import { Scan } from './pages/Scan';
 import { Review } from './pages/Review';
 import { Settings } from './pages/Settings';
+import { Contact } from './pages/Contact';
+import { runQueued } from './lib/flow';
 import { BASE, to } from './lib/paths';
 import './styles.css';
 
@@ -36,6 +38,7 @@ function App() {
             <Route path={BASE} component={Home} />
             <Route path={to('scan')} component={Scan} />
             <Route path={to('review/:id')} component={Review} />
+            <Route path={to('contact/:id')} component={Contact} />
             <Route path={to('settings')} component={Settings} />
             <Route default component={NotFound} />
           </Router>
@@ -45,5 +48,8 @@ function App() {
     </LocationProvider>
   );
 }
+
+// 恢復連線時自動送出待辨識照片（docs/01 F4.3）
+window.addEventListener('online', () => { void runQueued(); });
 
 render(<App />, document.getElementById('app')!);

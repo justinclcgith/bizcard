@@ -1,6 +1,6 @@
 /** 拍照 → 縮圖 → 草稿 → 辨識 的流程。 */
 import { ApiError, recognize } from '../api/client';
-import { getDraft, newLocalId, saveDraft, todayTaipei } from '../db/db';
+import { getDraft, listDrafts, newLocalId, saveDraft, todayTaipei } from '../db/db';
 import type { Draft } from '../db/db';
 import { toDraftCards } from './draftOps';
 import { blobToBase64, prepareImage } from './image';
@@ -67,4 +67,45 @@ export async function recognizeCrop(crop: PreparedImage, provider: Provider, sid
 
 export async function reloadDraft(id: string): Promise<Draft | undefined> {
   return getDraft(id);
+}
+
+function isOffline(e?: unknown): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  return e instanceof ApiError && (e.code === 'NETWORK' || e.code === 'TIMEOUT');
+}
+
+/**
+ * 掃描時使用：離線則把草稿標成 queued（待辨識佇列，docs/01 F4.3），連線後由 runQueued 送出。
+ */
+export async function recognizeOrQueue(draft: Draft): Promise<Draft> {
+  if (isOffline()) {
+    const q: Draft = { ...draft, status: 'queued' };
+    await saveDraft(q);
+    return q;
+  }
+  const next = await runRecognition(draft);
+  if (next.status === 'error' && typeof navigator !== 'undefined' && navigator.onLine === false) {
+    const q: Draft = { ...next, status: 'queued', error: undefined };
+    await saveDraft(q);
+    return q;
+  }
+  return next;
+}
+
+let queueRun: Promise<number> | null = null;
+
+/** 依序辨識所有待辨識草稿；回傳完成數量。執行中再呼叫會等同一輪結束。 */
+export function runQueued(): Promise<number> {
+  if (isOffline()) return Promise.resolve(0);
+  queueRun ??= (async () => {
+    let n = 0;
+    for (const d of await listDrafts()) {
+      if (d.status !== 'queued') continue;
+      if (isOffline()) break;
+      const next = await runRecognition({ ...d, status: 'recognizing' });
+      if (next.status !== 'error') n++;
+    }
+    return n;
+  })().finally(() => { queueRun = null; });
+  return queueRun;
 }

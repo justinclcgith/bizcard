@@ -1,7 +1,7 @@
 /** 掃描頁：拍照或選圖（可多選），依序辨識。 */
 import { useState } from 'preact/hooks';
 import { useLocation } from 'preact-iso';
-import { createDraftFromFile, errorMessage, runRecognition } from '../lib/flow';
+import { createDraftFromFile, errorMessage, recognizeOrQueue } from '../lib/flow';
 import { isConfigured, loadSettings } from '../lib/settings';
 import { to } from '../lib/paths';
 
@@ -26,8 +26,10 @@ export function Scan() {
       update({ state: 'working', message: '縮圖並辨識中…' });
       try {
         const draft = await createDraftFromFile(list[i]!, settings.provider);
-        const done = await runRecognition(draft);
-        if (done.status === 'error') {
+        const done = await recognizeOrQueue(draft);
+        if (done.status === 'queued') {
+          update({ state: 'done', message: '目前離線，已排入待辨識，連線後自動送出', draftId: done.localId });
+        } else if (done.status === 'error') {
           update({ state: 'error', message: done.error, draftId: done.localId });
         } else {
           const n = done.status === 'compare'
