@@ -153,3 +153,17 @@ function generateToken() {
   Logger.log('新的 APP_TOKEN：' + token);
   return token;
 }
+
+/**
+ * 印出手機設定用的 JSON（{"url","token"}），在編輯器手動執行、從執行記錄複製，
+ * 再到手機設定頁按「從剪貼簿貼上設定」。需先完成「網頁應用程式」部署。
+ */
+function showSetupInfo() {
+  var url = ScriptApp.getService().getUrl();
+  var token = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
+  if (!url) throw new Error('尚未部署為網頁應用程式');
+  if (!token) throw new Error('尚未設定 APP_TOKEN');
+  var payload = JSON.stringify({ url: url, token: token });
+  Logger.log('手機設定（請勿貼到公開的地方）：' + payload);
+  return payload;
+}
