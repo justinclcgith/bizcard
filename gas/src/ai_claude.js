@@ -4,7 +4,7 @@
 
 var CLAUDE_ENDPOINT = 'https://api.anthropic.com/v1/messages';
 
-function buildClaudeRequest_(props, image, prompt) {
+function buildClaudeRequest_(props, image, prompt, opts) {
   var key = props.getProperty('ANTHROPIC_API_KEY');
   if (!key) throw new AppError('AI_ERROR', '尚未設定 Claude 金鑰');
   var body = {
@@ -12,7 +12,7 @@ function buildClaudeRequest_(props, image, prompt) {
     max_tokens: 16000,
     fallbacks: 'default',
     output_config: {
-      effort: props.getProperty('CLAUDE_EFFORT') || 'low',
+      effort: (opts && opts.claudeEffort) || props.getProperty('CLAUDE_EFFORT') || 'low',
       format: { type: 'json_schema', schema: CARD_SCHEMA_V1 }
     },
     messages: [{

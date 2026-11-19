@@ -93,6 +93,7 @@ function handleRecognize(req) {
   var props = PropertiesService.getScriptProperties();
   var PROVIDERS = getProviders_();
   var provider = req.provider || props.getProperty('DEFAULT_PROVIDER') || 'claude';
+  var opts = { claudeEffort: ['low', 'medium', 'high'].indexOf(req.claudeEffort) >= 0 ? req.claudeEffort : null };
   var prompt = PROMPT_V1 + (req.side === 'back' ? BACK_SIDE_SUFFIX : '');
   var photoBytes = Math.floor(image.base64.length * 3 / 4);
 
@@ -105,7 +106,7 @@ function handleRecognize(req) {
     var requests = [];
     names.forEach(function (n) {
       try {
-        requests.push(PROVIDERS[n].build(props, image, prompt));
+        requests.push(PROVIDERS[n].build(props, image, prompt, opts));
         ready.push(n);
       } catch (err) {
         results[n] = { error: { code: err.code || 'INTERNAL', message: err.message || '辨識失敗' } };
@@ -129,7 +130,7 @@ function handleRecognize(req) {
   var t0 = Date.now();
   var parsed;
   try {
-    var request = p.build(props, image, prompt);
+    var request = p.build(props, image, prompt, opts);
     parsed = p.parse(UrlFetchApp.fetch(request.url, request));
   } catch (err) {
     logRecognition_(provider, '', photoBytes, 0, Date.now() - t0, null, 'error', err.code || 'INTERNAL', '');

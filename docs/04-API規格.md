@@ -15,8 +15,10 @@
 { "image": { "mime": "image/jpeg", "base64": "...", "width": 2400, "height": 1800 },
   "provider": "claude" | "gemini" | "compare",
   "side": "front" | "back",
-  "hint": { "region": [x0,y0,x1,y1] } }
+  "hint": { "region": [x0,y0,x1,y1] },
+  "claudeEffort": "low" | "medium" | "high" }
 ```
+- `claudeEffort`（選用）：覆寫 Script Properties 的 `CLAUDE_EFFORT`，供驗收評測比較 effort 使用；其他值忽略。
 - `hint.region`（選用，0–1000 正規化座標）：使用者手動新增框後只辨識該區域時使用；GAS 不裁切，改在提示詞中要求只辨識該區域（PWA 也可直接送裁好的圖，優先採用此做法）。
 
 回應（`provider` 為單一家時）：

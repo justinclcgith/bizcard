@@ -139,6 +139,14 @@ describe('recognize', () => {
     expect(h.logRows.at(-1)[1]).toBe('claude');
   });
 
+  it('claudeEffort 覆寫（評測用，僅接受 low/medium/high）', () => {
+    const h = makeContext({ props: PROPS, fetchImpl: () => claudeOk() });
+    h.post({ token: PROPS.APP_TOKEN, action: 'recognize', provider: 'claude', image: img, claudeEffort: 'medium' });
+    h.post({ token: PROPS.APP_TOKEN, action: 'recognize', provider: 'claude', image: img, claudeEffort: 'max' });
+    expect(JSON.parse(h.fetched[0].params.payload).output_config.effort).toBe('medium');
+    expect(JSON.parse(h.fetched[1].params.payload).output_config.effort).toBe('low');
+  });
+
   it('Claude 拒絕時回傳 AI_REFUSED', () => {
     const h = makeContext({ props: PROPS, fetchImpl: () => httpResp(200, { stop_reason: 'refusal', content: [] }) });
     const r = h.post({ token: PROPS.APP_TOKEN, action: 'recognize', provider: 'claude', image: img });
