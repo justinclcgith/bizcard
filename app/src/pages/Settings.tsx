@@ -73,7 +73,7 @@ export function Settings() {
           <input value={s.gasUrl} inputMode="url" placeholder="https://script.google.com/macros/s/…/exec"
             data-testid="gas-url" onInput={(e) => persist({ ...s, gasUrl: (e.target as HTMLInputElement).value.trim() })} />
         </label>
-        {urlInvalid && <p class="notice error">網址格式不正確，應為 https://script.google.com/macros/s/…/exec</p>}
+        {urlInvalid && <p class="notice error">網址格式不正確，應為 https://script.google.com/…/s/…/exec（在 Apps Script「部署」後複製的網址）</p>}
         <label class="field">
           <span>存取權杖</span>
           <input type={showToken ? 'text' : 'password'} value={s.token} autoComplete="off"
@@ -92,7 +92,7 @@ export function Settings() {
           <button class="secondary" onClick={async () => {
             try {
               const t = await navigator.clipboard.readText();
-              if (!applyPayload(t)) setStatus({ ok: false, text: '剪貼簿內容不是有效的設定' });
+              if (!applyPayload(t)) setStatus({ ok: false, text: '剪貼簿內容不是有效的設定。也可以在上方分別貼上「後端網址」與「存取權杖」' });
             } catch { setStatus({ ok: false, text: '無法讀取剪貼簿' }); }
           }}>從剪貼簿貼上設定</button>
         </div>

@@ -1,6 +1,6 @@
 # 04 API 規格（PWA ↔ GAS）
 
-- 端點：GAS Web App 部署網址（`https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec`）
+- 端點：GAS Web App 部署網址（個人帳號 `https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec`；Google Workspace 帳號 `https://script.google.com/a/<網域>/macros/s/<DEPLOYMENT_ID>/exec`）
 - 方法：`POST`，標頭 `Content-Type: text/plain;charset=utf-8`，body 為 JSON 字串。
 - 共通請求欄位：`{ "token": "<APP_TOKEN>", "action": "<動作>", "requestId": "<uuid>", ...參數 }`
 - 共通回應：`{ "ok": true, "data": {...} }` 或 `{ "ok": false, "error": { "code": "...", "message": "繁中說明" } }`
