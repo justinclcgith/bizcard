@@ -184,6 +184,16 @@ describe('權限與 Drive 結構', () => {
   });
 });
 
+describe('showSetupInfo', () => {
+  it('需要 WEBAPP_URL（/exec），不使用編輯器的 /dev 網址', () => {
+    expect(() => g.ctx.showSetupInfo()).toThrow(/WEBAPP_URL/);
+    g.store.WEBAPP_URL = 'https://script.google.com/a/example.com/macros/s/X/dev';
+    expect(() => g.ctx.showSetupInfo()).toThrow(/WEBAPP_URL/);
+    g.store.WEBAPP_URL = ' https://script.google.com/a/example.com/macros/s/X/exec ';
+    expect(JSON.parse(g.ctx.showSetupInfo())).toEqual({ url: 'https://script.google.com/a/example.com/macros/s/X/exec', token: TOKEN });
+  });
+});
+
 describe('stats', () => {
   it('彙總本月辨識', () => {
     const log = g.sheets.get('RecognitionLog');
