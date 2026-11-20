@@ -45,8 +45,8 @@ describe('saveCards', () => {
     expect(rows).toHaveLength(1);
     // 電話以文字保存，不被轉成數字
     expect(rows[0].mobile).toBe('+886912000000');
-    expect(g.drive.items.get(c.front_image_id).blob.name).toMatch(/^front_/);
-    expect(g.drive.items.get(c.source_photo_id).blob.name).toMatch(/^p_/);
+    expect(g.drive.items.get(c.front_image_id).name).toMatch(/^front_/);
+    expect(g.drive.items.get(c.source_photo_id).name).toMatch(/^p_/);
   });
 
   it('多張一起存', () => {
@@ -138,8 +138,59 @@ describe('getImage', () => {
     const c = save([{ tempId: 't1', fields: fields(), front: IMG }]).data.contacts[0].contact;
     const img = g.post({ action: 'getImage', fileId: c.front_image_id, size: 'full' }).data;
     expect(Buffer.from(img.base64, 'base64').toString()).toBe('jpegdata');
-    const outside = g.otherRoot.createFile({ getBytes: () => [1], getContentType: () => 'image/jpeg' });
+    // 程式建立但不在名片夾底下的檔案
+    const outside = g.drive.add({ name: 'x.jpg', mimeType: 'image/jpeg', parents: ['elsewhere'], bytes: [1] });
     expect(g.post({ action: 'getImage', fileId: outside.id }).error.code).toBe('NOT_FOUND');
+    // drive.file 權限看不到的檔案（使用者其他檔案）
+    const foreign = g.drive.add({ name: 'y.jpg', mimeType: 'image/jpeg', parents: [g.store.DRIVE_FOLDER_ID], bytes: [1], foreign: true });
+    expect(g.post({ action: 'getImage', fileId: foreign.id }).error.code).toBe('NOT_FOUND');
+    // 資料夾不是圖片；格式錯誤的 ID 不送出
+    expect(g.post({ action: 'getImage', fileId: g.store.DRIVE_FOLDER_ID }).error.code).toBe('NOT_FOUND');
+    expect(g.post({ action: 'getImage', fileId: '../x?y' }).error.code).toBe('NOT_FOUND');
+  });
+});
+
+describe('權限與 Drive 結構', () => {
+  it('manifest 只要求最小權限', async () => {
+    const fs = await import('node:fs');
+    const m = JSON.parse(fs.readFileSync(new URL('../appsscript.json', import.meta.url), 'utf8'));
+    expect(m.oauthScopes.sort()).toEqual([
+      'https://www.googleapis.com/auth/drive.file',
+      'https://www.googleapis.com/auth/script.external_request',
+      'https://www.googleapis.com/auth/spreadsheets.currentonly'
+    ]);
+  });
+  it('setup 建立 名片夾/{cards,photos,backup}，重跑不重複', () => {
+    const folders = () => [...g.drive.items.values()].filter((f) => f.mimeType === 'application/vnd.google-apps.folder').map((f) => f.name).sort();
+    expect(folders()).toEqual(['backup', 'cards', 'photos', '名片夾']);
+    g.ctx.setup();
+    expect(folders()).toEqual(['backup', 'cards', 'photos', '名片夾']);
+  });
+  it('圖片存在 名片夾/cards/yyyy/MM', () => {
+    const c = save([{ tempId: 't1', fields: fields(), front: IMG }]).data.contacts[0].contact;
+    const path = [];
+    let f = g.drive.items.get(c.front_image_id);
+    while (f) { path.unshift(f.name); f = g.drive.items.get(f.parents[0]); }
+    expect(path.slice(0, 4)).toEqual(['名片夾', 'cards', '2026', '11']);
+  });
+  it('試算表手動編輯會更新 updated_at（簡單觸發器 onEdit）', () => {
+    save([{ tempId: 't1', fields: fields(), front: IMG }]);
+    const sh = g.sheets.get('Contacts');
+    const before = sh.objects()[0].updated_at;
+    g.advance(60_000);
+    const col = sh.data[0].indexOf('title_zh') + 1;
+    g.ctx.onEdit({ range: { getSheet: () => sh, getRow: () => 3, getColumn: () => col, getLastColumn: () => col, getNumRows: () => 1 } });
+    expect(sh.objects()[0].updated_at > before).toBe(true);
+  });
+});
+
+describe('showSetupInfo', () => {
+  it('需要 WEBAPP_URL（/exec），不使用編輯器的 /dev 網址', () => {
+    expect(() => g.ctx.showSetupInfo()).toThrow(/WEBAPP_URL/);
+    g.store.WEBAPP_URL = 'https://script.google.com/a/example.com/macros/s/X/dev';
+    expect(() => g.ctx.showSetupInfo()).toThrow(/WEBAPP_URL/);
+    g.store.WEBAPP_URL = ' https://script.google.com/a/example.com/macros/s/X/exec ';
+    expect(JSON.parse(g.ctx.showSetupInfo())).toEqual({ url: 'https://script.google.com/a/example.com/macros/s/X/exec', token: TOKEN });
   });
 });
 

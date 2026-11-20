@@ -6,7 +6,7 @@
 
 ## 一句話說明
 
-在 Pixel 8 的 Chrome 上安裝成 App 的 PWA：拍照或載入圖片，雲端 AI（Claude / Gemini 可切換）一次辨識單張或多張名片並回傳位置框，手機裁出單張圖讓使用者確認後，由 Google Apps Script 後端寫入個人 Google 帳號的 Sheets（資料）與 Drive（圖檔）。
+在 Pixel 8 的 Chrome 上安裝成 App 的 PWA：拍照或載入圖片，雲端 AI（Claude / Gemini 可切換）一次辨識單張或多張名片並回傳位置框，手機裁出單張圖讓使用者確認後，由 Google Apps Script 後端寫入 JC Google 帳號的 Sheets（資料）與 Drive（圖檔）。
 
 ## 文件清單
 

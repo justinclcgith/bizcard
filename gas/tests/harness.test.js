@@ -28,13 +28,8 @@ function makeContext({ props = {}, fetchImpl } = {}) {
         put: (k, v) => { cache[k] = v; }
       })
     },
-    SpreadsheetApp: {
-      openById: (id) => {
-        if (!id) throw new Error('no sheet');
-        return { getSheetByName: () => sheet };
-      }
-    },
-    DriveApp: { getFolderById: (id) => { if (!id) throw new Error('no folder'); return {}; } },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheetByName: () => sheet }) },
+    ScriptApp: { getOAuthToken: () => 'oauth' },
     Utilities: {
       formatDate: () => '2026111912',
       getUuid: () => 'uuid-1',
@@ -43,7 +38,14 @@ function makeContext({ props = {}, fetchImpl } = {}) {
       DigestAlgorithm: { SHA_256: 'sha256' }
     },
     UrlFetchApp: {
-      fetch: (url, params) => { fetched.push({ url, params }); return fetchImpl(url, params); },
+      fetch: (url, params) => {
+        // Drive API（ping 檢查資料夾）不列入 AI 呼叫紀錄
+        if (url.startsWith('https://www.googleapis.com/drive/')) {
+          return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ id: 'folder', mimeType: 'application/vnd.google-apps.folder', trashed: false }) };
+        }
+        fetched.push({ url, params });
+        return fetchImpl(url, params);
+      },
       fetchAll: (reqs) => reqs.map((r) => { fetched.push({ url: r.url, params: r }); return fetchImpl(r.url, r); })
     },
     ContentService: {
@@ -86,7 +88,7 @@ const geminiOk = () => httpResp(200, {
 });
 
 const PROPS = {
-  APP_TOKEN: 'secret-token-1234567890', SHEET_ID: 's1', DRIVE_FOLDER_ID: 'd1',
+  APP_TOKEN: 'secret-token-1234567890', DRIVE_FOLDER_ID: 'd1',
   ANTHROPIC_API_KEY: 'ak', GEMINI_API_KEY: 'gk', PRICE_CLAUDE_IN: '4', PRICE_CLAUDE_OUT: '20'
 };
 const img = { mime: 'image/jpeg', base64: 'AAAA' };

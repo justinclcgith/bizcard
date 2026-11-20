@@ -163,9 +163,9 @@ function estimateCost_(provider, usage, props) {
 
 function logRecognition_(provider, model, photoBytes, cards, latency, usage, status, errorCode, groupId, cost) {
   try {
-    var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
-    if (!id) return;
-    SpreadsheetApp.openById(id).getSheetByName('RecognitionLog').appendRow([
+    var sh = openDb_().getSheetByName('RecognitionLog');
+    if (!sh) return;
+    sh.appendRow([
       new Date(), provider, model || '', photoBytes, cards, latency,
       usage ? usage.input : '', usage ? usage.output : '', cost || '', status, errorCode || '', groupId || ''
     ]);

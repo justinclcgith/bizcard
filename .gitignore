@@ -1,5 +1,6 @@
 node_modules/
 dist/
+!gas/dist/
 testdata/
 eval-report-*.md
 .clasp.json

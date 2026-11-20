@@ -91,8 +91,8 @@ function handlePing() {
   var props = PropertiesService.getScriptProperties();
   var sheetOk = false;
   var driveOk = false;
-  try { SpreadsheetApp.openById(props.getProperty('SHEET_ID')); sheetOk = true; } catch (e) { /* 未設定 */ }
-  try { DriveApp.getFolderById(props.getProperty('DRIVE_FOLDER_ID')); driveOk = true; } catch (e) { /* 未設定 */ }
+  try { sheetOk = !!openDb_().getSheetByName('Contacts'); } catch (e) { /* 未執行 setup */ }
+  try { driveOk = !!driveGet_(props.getProperty('DRIVE_FOLDER_ID')); } catch (e) { /* 未執行 setup */ }
   var providers = [];
   if (props.getProperty('ANTHROPIC_API_KEY')) providers.push('claude');
   if (props.getProperty('GEMINI_API_KEY')) providers.push('gemini');
@@ -136,9 +136,8 @@ function jsonOut_(obj) {
 /** 寫入 Log 工作表；不得包含金鑰或權杖。 */
 function logEvent_(level, where, detail) {
   try {
-    var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
-    if (!id) return;
-    var sh = SpreadsheetApp.openById(id).getSheetByName('Log');
+    var sh = openDb_().getSheetByName('Log');
+    if (!sh) return;
     var msg = detail && detail.stack ? String(detail.stack).slice(0, 500) : String(detail).slice(0, 500);
     sh.appendRow([new Date(), level, where, msg]);
   } catch (e) { /* 記錄失敗不影響主流程 */ }
@@ -156,13 +155,18 @@ function generateToken() {
 
 /**
  * 印出手機設定用的 JSON（{"url","token"}），在編輯器手動執行、從執行記錄複製，
- * 再到手機設定頁按「從剪貼簿貼上設定」。需先完成「網頁應用程式」部署。
+ * 再到手機設定頁按「從剪貼簿貼上設定」。
+ * 從編輯器執行時 ScriptApp.getService().getUrl() 會回傳測試用的 /dev 網址（手機無法使用），
+ * 所以網址以指令碼屬性 WEBAPP_URL 為準：請把「部署」後複製的 /exec 網址填進去。
  */
 function showSetupInfo() {
-  var url = ScriptApp.getService().getUrl();
-  var token = PropertiesService.getScriptProperties().getProperty('APP_TOKEN');
-  if (!url) throw new Error('尚未部署為網頁應用程式');
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty('APP_TOKEN');
   if (!token) throw new Error('尚未設定 APP_TOKEN');
+  var url = String(props.getProperty('WEBAPP_URL') || '').trim();
+  if (!/\/exec$/.test(url)) {
+    throw new Error('請先把「部署 → 管理部署作業」裡的網頁應用程式網址（/exec 結尾）填入指令碼屬性 WEBAPP_URL，再執行一次。');
+  }
   var payload = JSON.stringify({ url: url, token: token });
   Logger.log('手機設定（請勿貼到公開的地方）：' + payload);
   return payload;

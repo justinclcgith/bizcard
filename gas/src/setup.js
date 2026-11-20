@@ -34,10 +34,15 @@ var SHEET_SCHEMAS = {
 
 var HEADER_ROWS = 2;
 
+/**
+ * 在「綁定試算表的 Apps Script」中執行（擴充功能 → Apps Script）。
+ * 只使用這份試算表（spreadsheets.currentonly）與程式自己建立的 Drive 資料夾（drive.file）。
+ */
 function setup() {
   var props = PropertiesService.getScriptProperties();
 
-  var ss = getOrCreateSpreadsheet_(props);
+  var ss = openDb_();
+  ss.setSpreadsheetTimeZone('Asia/Taipei');
   Object.keys(SHEET_SCHEMAS).forEach(function (name) {
     ensureSheet_(ss, name, SHEET_SCHEMAS[name]);
   });
@@ -45,22 +50,10 @@ function setup() {
   if (defaultSheet && ss.getSheets().length > 1) ss.deleteSheet(defaultSheet);
 
   var root = getOrCreateRootFolder_(props);
-  ['cards', 'photos', 'backup'].forEach(function (n) { getOrCreateChild_(root, n); });
+  ['cards', 'photos', 'backup'].forEach(function (n) { driveChildFolder_(root, n); });
 
-  ensureOnEditTrigger_(ss);
   Logger.log('完成。試算表：' + ss.getUrl());
-  Logger.log('Drive 資料夾：' + root.getUrl());
-}
-
-function getOrCreateSpreadsheet_(props) {
-  var id = props.getProperty('SHEET_ID');
-  if (id) {
-    try { return SpreadsheetApp.openById(id); } catch (e) { /* 已被刪除，重建 */ }
-  }
-  var ss = SpreadsheetApp.create('名片夾資料庫');
-  ss.setSpreadsheetTimeZone('Asia/Taipei');
-  props.setProperty('SHEET_ID', ss.getId());
-  return ss;
+  Logger.log('Drive 資料夾：https://drive.google.com/drive/folders/' + root);
 }
 
 function ensureSheet_(ss, name, schema) {
@@ -85,26 +78,20 @@ function ensureSheet_(ss, name, schema) {
   sh.getRange(2, 1, 1, sh.getLastColumn()).setFontWeight('bold').setBackground('#eef3f8');
 }
 
+/** 名片夾根資料夾（由程式建立，drive.file 才能存取）。 */
 function getOrCreateRootFolder_(props) {
   var id = props.getProperty('DRIVE_FOLDER_ID');
-  if (id) {
-    try { return DriveApp.getFolderById(id); } catch (e) { /* 重建 */ }
-  }
-  var folder = DriveApp.createFolder('名片夾');
-  props.setProperty('DRIVE_FOLDER_ID', folder.getId());
+  if (id && driveGet_(id)) return id;
+  var folder = driveCreateFolder_('名片夾', null);
+  props.setProperty('DRIVE_FOLDER_ID', folder);
   return folder;
 }
 
-function getOrCreateChild_(parent, name) {
-  var it = parent.getFoldersByName(name);
-  return it.hasNext() ? it.next() : parent.createFolder(name);
-}
-
-function ensureOnEditTrigger_(ss) {
-  var exists = ScriptApp.getProjectTriggers().some(function (t) {
-    return t.getHandlerFunction() === 'onContactsEdit';
-  });
-  if (!exists) ScriptApp.newTrigger('onContactsEdit').forSpreadsheet(ss).onEdit().create();
+/**
+ * 簡單觸發器：在試算表手動編輯時自動執行，不需要額外授權。
+ */
+function onEdit(e) {
+  onContactsEdit(e);
 }
 
 /** Contacts 被手動編輯時更新 updated_at（docs/01 F4.4）。 */

@@ -13,7 +13,7 @@
 ### 第一次設定（約 30 分鐘，只需做一次）
 詳細步驟見 [`docs/08-部署與設定.md`](docs/08-部署與設定.md)，摘要如下：
 
-1. **後端**：在 `gas/` 執行 `npx clasp create --type standalone --title "名片夾後端"`，再 `npx clasp push`。
+1. **後端**：新增一份試算表「名片夾資料庫」→「擴充功能 → Apps Script」→ 貼上 `gas/dist/Code.gs` 與 `gas/appsscript.json`。後端只會取得這份試算表與自己建立的 Drive 資料夾的權限。
 2. 在 Apps Script 編輯器執行 `setup()`（第一次會要求授權），再執行 `generateToken()`，把產生的權杖記到「專案設定 → 指令碼屬性」的 `APP_TOKEN`。
 3. 同一處加入 `ANTHROPIC_API_KEY`、`GEMINI_API_KEY` 等屬性（金鑰只放這裡，不要貼到聊天或 GitHub）。
 4. 「部署 → 新增部署作業 → 網頁應用程式」，執行身分「我」、存取權「任何人」，複製部署網址。
@@ -36,7 +36,7 @@
 | 看費用 | 「設定」→「查詢用量」，顯示本月辨識次數與估計費用（美元） |
 
 ### 更新後端程式
-`cd gas && npx clasp push`，再到「部署 → 管理部署作業 → 編輯 → 版本：新版本」，網址不會變，手機不用重設。
+把新版 `gas/dist/Code.gs` 貼到 Apps Script（或 `cd gas && npx clasp push`），再到「部署 → 管理部署作業 → 編輯 → 版本：新版本」，網址不會變，手機不用重設。
 
 ### 常見問題
 - **測試連線顯示「權杖錯誤」**：確認手機上的權杖和指令碼屬性 `APP_TOKEN` 完全相同（沒有多餘空白）。連續錯 20 次會暫停 1 小時。
