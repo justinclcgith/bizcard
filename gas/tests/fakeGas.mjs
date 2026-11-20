@@ -60,19 +60,57 @@ class FakeSheet {
   }
 }
 
-class FakeFolder {
-  constructor(drive, id, name, parent) { Object.assign(this, { drive, id, name, parent, children: [] }); }
-  getId() { return this.id; }
-  getUrl() { return 'https://drive/' + this.id; }
-  getFoldersByName(n) { return iter(this.children.filter((c) => c instanceof FakeFolder && c.name === n)); }
-  createFolder(n) { const f = new FakeFolder(this.drive, this.drive.nextId('fo'), n, this); this.children.push(f); this.drive.items.set(f.id, f); return f; }
-  createFile(blob) {
-    const f = { id: this.drive.nextId('fi'), blob, parent: this, trashed: false,
-      getId() { return this.id; }, getParents: () => iter([this]), getBlob() { return f.blob; },
-      getThumbnail() { return null; }, setTrashed(t) { f.trashed = t; } };
-    this.children.push(f); this.drive.items.set(f.id, f); return f;
-  }
-  getParents() { return iter(this.parent ? [this.parent] : []); }
+const FOLDER = 'application/vnd.google-apps.folder';
+const resp = (code, body, extra = {}) => ({
+  getResponseCode: () => code,
+  getContentText: () => (typeof body === 'string' ? body : JSON.stringify(body)),
+  ...extra
+});
+
+/** Drive REST v3 的記憶體模擬（只實作 drive_api.js 用到的部分）。 */
+function makeFakeDrive() {
+  let seq = 0;
+  const items = new Map();
+  const drive = {
+    items,
+    add(meta) { const f = { id: `f${++seq}`, trashed: false, parents: [], ...meta }; items.set(f.id, f); return f; },
+    fetch(url, p = {}) {
+      const u = new URL(url);
+      const method = (p.method || 'get').toLowerCase();
+      if (!String(p.headers?.Authorization || '').startsWith('Bearer ')) return resp(401, { error: 'no auth' });
+      const m = u.pathname.match(/^\/(upload\/)?drive\/v3\/files(?:\/([^/]+))?$/);
+      if (!m) return resp(404, {});
+      const [, upload, id] = m;
+      if (upload) {
+        const buf = Buffer.from(p.payload);
+        const boundary = p.contentType.match(/boundary=(\S+)/)[1];
+        const parts = buf.toString('latin1').split(`--${boundary}`);
+        const meta = JSON.parse(Buffer.from(parts[1].split('\r\n\r\n')[1].trim(), 'latin1').toString('utf8'));
+        const mime = parts[2].match(/Content-Type: (\S+)/)[1];
+        const body = parts[2].slice(parts[2].indexOf('\r\n\r\n') + 4, -2);
+        const f = drive.add({ name: meta.name, parents: meta.parents, mimeType: mime, bytes: [...Buffer.from(body, 'latin1')] });
+        return resp(200, { id: f.id });
+      }
+      if (!id && method === 'post') {
+        const meta = JSON.parse(p.payload);
+        return resp(200, { id: drive.add({ name: meta.name, parents: meta.parents || [], mimeType: meta.mimeType }).id });
+      }
+      if (!id && method === 'get') {
+        const q = u.searchParams.get('q');
+        const [, parent, name] = q.match(/^'(.+?)' in parents and name = '(.+?)'/);
+        const files = [...items.values()].filter((f) => !f.trashed && f.mimeType === FOLDER && f.parents.includes(parent) && f.name === name.replace(/\\'/g, "'"));
+        return resp(200, { files: files.map((f) => ({ id: f.id })) });
+      }
+      const f = items.get(id);
+      if (!f || f.foreign) return resp(404, { error: 'not found' });
+      if (method === 'patch') { Object.assign(f, JSON.parse(p.payload)); return resp(200, { id }); }
+      if (u.searchParams.get('alt') === 'media') {
+        return resp(200, '', { getBlob: () => ({ getBytes: () => f.bytes, getContentType: () => f.mimeType }) });
+      }
+      return resp(200, { id: f.id, name: f.name, mimeType: f.mimeType, parents: f.parents, trashed: f.trashed });
+    }
+  };
+  return drive;
 }
 
 function iter(arr) { let i = 0; return { hasNext: () => i < arr.length, next: () => arr[i++] }; }
@@ -88,9 +126,7 @@ export function makeGas({ props = {}, fetchImpl = () => { throw new Error('no fe
     getSheets: () => [...sheets.values()], deleteSheet: (s) => sheets.delete(s.name)
   };
   let idSeq = 0;
-  const drive = { items: new Map(), nextId: (p) => `${p}${++idSeq}` };
-  const otherRoot = new FakeFolder(drive, 'other', 'other', null);
-  drive.items.set('other', otherRoot);
+  const drive = makeFakeDrive();
   let clock = Date.parse('2026-11-19T10:00:00+08:00');
   const fmt = (d, _tz, pattern) => {
     const t = new Date(d.getTime() + 8 * 3600e3).toISOString();
@@ -107,23 +143,24 @@ export function makeGas({ props = {}, fetchImpl = () => { throw new Error('no fe
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => store[k] ?? null, setProperty: (k, v) => { store[k] = v; } }) },
     CacheService: { getScriptCache: () => ({ get: (k) => cache[k] ?? null, put: (k, v) => { cache[k] = v; } }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock() {} }) },
-    SpreadsheetApp: { create: () => ss, openById: (id) => { if (id !== 'SS1') throw new Error('x'); return ss; } },
-    DriveApp: {
-      createFolder: (n) => { const f = new FakeFolder(drive, drive.nextId('fo'), n, null); drive.items.set(f.id, f); return f; },
-      getFolderById: (id) => { const f = drive.items.get(id); if (!(f instanceof FakeFolder)) throw new Error('x'); return f; },
-      getFileById: (id) => { const f = drive.items.get(id); if (!f || f instanceof FakeFolder) throw new Error('x'); return f; }
-    },
-    ScriptApp: { getProjectTriggers: () => [], newTrigger: () => ({ forSpreadsheet: () => ({ onEdit: () => ({ create() {} }) }) }) },
+    SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+    ScriptApp: { getOAuthToken: () => 'fake-oauth-token', getService: () => ({ getUrl: () => 'https://script.google.com/macros/s/TEST/exec' }) },
     Utilities: {
       formatDate: fmt,
       getUuid: () => `uuid-${++idSeq}-abcdef`,
-      newBlob: (bytes, mime, name) => ({ bytes, mime, name, getBytes: () => bytes, getContentType: () => mime }),
+      newBlob: (data, mime, name) => {
+        const bytes = typeof data === 'string' ? [...Buffer.from(data, 'utf8')] : data;
+        return { bytes, mime, name, getBytes: () => bytes, getContentType: () => mime };
+      },
       base64Decode: (s) => [...Buffer.from(s, 'base64')],
       base64Encode: (b) => Buffer.from(b).toString('base64'),
       base64EncodeWebSafe: (s) => Buffer.from(String(s)).toString('base64url'),
       computeDigest: (_a, s) => String(s), DigestAlgorithm: { SHA_256: 'x' }
     },
-    UrlFetchApp: { fetch: (u, p) => fetchImpl(u, p), fetchAll: (rs) => rs.map((r) => fetchImpl(r.url, r)) },
+    UrlFetchApp: {
+      fetch: (u, p) => (String(u).startsWith('https://www.googleapis.com/') ? drive.fetch(u, p) : fetchImpl(u, p)),
+      fetchAll: (rs) => rs.map((r) => fetchImpl(r.url, r))
+    },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (s) => ({ setMimeType: () => ({ body: s }) }) },
     Logger: { log() {} }
   };
@@ -134,7 +171,7 @@ export function makeGas({ props = {}, fetchImpl = () => { throw new Error('no fe
   ctx.setup();
   const token = store.APP_TOKEN;
   return {
-    ctx, store, sheets, drive, otherRoot,
+    ctx, store, sheets, drive,
     advance: (ms) => { clock += ms; },
     post: (obj) => JSON.parse(ctx.doPost({ postData: { contents: JSON.stringify({ token, ...obj }) } }).body)
   };

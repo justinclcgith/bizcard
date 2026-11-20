@@ -352,6 +352,84 @@ function handleStats(req) {
   return { month: month, recognitions: rows.length, cards: cards, estCostUsd: Math.round(cost * 10000) / 10000, byProvider: byProvider };
 }
 
+// ===== drive_api.js =====
+/**
+ * Drive REST API v3（以 drive.file 權限呼叫）。
+ * DriveApp 需要「所有雲端硬碟檔案」權限，所以改用 REST：
+ * 只能存取這個程式自己建立的檔案與資料夾。
+ */
+
+var DRIVE_API_ = 'https://www.googleapis.com/drive/v3/files';
+var DRIVE_UPLOAD_ = 'https://www.googleapis.com/upload/drive/v3/files';
+var FOLDER_MIME_ = 'application/vnd.google-apps.folder';
+
+function driveFetch_(url, opts) {
+  var params = {
+    method: (opts && opts.method) || 'get',
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true
+  };
+  if (opts && opts.contentType) params.contentType = opts.contentType;
+  if (opts && opts.payload !== undefined) params.payload = opts.payload;
+  var res = UrlFetchApp.fetch(url, params);
+  var code = res.getResponseCode();
+  if (code === 404) return null;
+  if (code >= 300) throw new Error('Drive API ' + code + '：' + String(res.getContentText()).slice(0, 300));
+  return res;
+}
+
+function driveJson_(url, opts) {
+  var res = driveFetch_(url, opts);
+  return res ? JSON.parse(res.getContentText() || '{}') : null;
+}
+
+/** 取得檔案中繼資料；不存在、已丟垃圾桶或無權限時回傳 null。 */
+function driveGet_(id) {
+  if (!id || !/^[\w-]+$/.test(String(id))) return null;
+  var f = driveJson_(DRIVE_API_ + '/' + id + '?fields=id,name,mimeType,parents,trashed,thumbnailLink');
+  return f && !f.trashed ? f : null;
+}
+
+function driveCreateFolder_(name, parentId) {
+  var meta = { name: name, mimeType: FOLDER_MIME_ };
+  if (parentId) meta.parents = [parentId];
+  return driveJson_(DRIVE_API_ + '?fields=id', {
+    method: 'post', contentType: 'application/json', payload: JSON.stringify(meta)
+  }).id;
+}
+
+/** 找子資料夾，沒有就建立。 */
+function driveChildFolder_(parentId, name) {
+  var q = "'" + parentId + "' in parents and name = '" + String(name).replace(/'/g, "\\'") +
+    "' and mimeType = '" + FOLDER_MIME_ + "' and trashed = false";
+  var r = driveJson_(DRIVE_API_ + '?fields=files(id)&q=' + encodeURIComponent(q));
+  if (r && r.files && r.files.length) return r.files[0].id;
+  return driveCreateFolder_(name, parentId);
+}
+
+/** multipart 上傳，回傳新檔案 ID。 */
+function driveUpload_(parentId, name, mime, bytes) {
+  var boundary = 'bizcard' + Utilities.getUuid().replace(/-/g, '');
+  var head = '--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' +
+    JSON.stringify({ name: name, parents: [parentId] }) +
+    '\r\n--' + boundary + '\r\nContent-Type: ' + mime + '\r\n\r\n';
+  var tail = '\r\n--' + boundary + '--';
+  var payload = Utilities.newBlob(head).getBytes().concat(bytes, Utilities.newBlob(tail).getBytes());
+  return driveJson_(DRIVE_UPLOAD_ + '?uploadType=multipart&fields=id', {
+    method: 'post', contentType: 'multipart/related; boundary=' + boundary, payload: payload
+  }).id;
+}
+
+/** 下載檔案內容（Blob）。 */
+function driveDownload_(id) {
+  var res = driveFetch_(DRIVE_API_ + '/' + id + '?alt=media');
+  return res ? res.getBlob() : null;
+}
+
+function driveTrash_(id) {
+  driveFetch_(DRIVE_API_ + '/' + id, { method: 'patch', contentType: 'application/json', payload: JSON.stringify({ trashed: true }) });
+}
+
 // ===== lib_contacts.js =====
 /**
  * 聯絡人純邏輯：重複比對（docs/03 §5）、合併與職稱歷程（docs/03 §2）。
@@ -851,8 +929,8 @@ function handlePing() {
   var props = PropertiesService.getScriptProperties();
   var sheetOk = false;
   var driveOk = false;
-  try { SpreadsheetApp.openById(props.getProperty('SHEET_ID')); sheetOk = true; } catch (e) { /* 未設定 */ }
-  try { DriveApp.getFolderById(props.getProperty('DRIVE_FOLDER_ID')); driveOk = true; } catch (e) { /* 未設定 */ }
+  try { sheetOk = !!openDb_().getSheetByName('Contacts'); } catch (e) { /* 未執行 setup */ }
+  try { driveOk = !!driveGet_(props.getProperty('DRIVE_FOLDER_ID')); } catch (e) { /* 未執行 setup */ }
   var providers = [];
   if (props.getProperty('ANTHROPIC_API_KEY')) providers.push('claude');
   if (props.getProperty('GEMINI_API_KEY')) providers.push('gemini');
@@ -896,9 +974,8 @@ function jsonOut_(obj) {
 /** 寫入 Log 工作表；不得包含金鑰或權杖。 */
 function logEvent_(level, where, detail) {
   try {
-    var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
-    if (!id) return;
-    var sh = SpreadsheetApp.openById(id).getSheetByName('Log');
+    var sh = openDb_().getSheetByName('Log');
+    if (!sh) return;
     var msg = detail && detail.stack ? String(detail.stack).slice(0, 500) : String(detail).slice(0, 500);
     sh.appendRow([new Date(), level, where, msg]);
   } catch (e) { /* 記錄失敗不影響主流程 */ }
@@ -1094,9 +1171,9 @@ function estimateCost_(provider, usage, props) {
 
 function logRecognition_(provider, model, photoBytes, cards, latency, usage, status, errorCode, groupId, cost) {
   try {
-    var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
-    if (!id) return;
-    SpreadsheetApp.openById(id).getSheetByName('RecognitionLog').appendRow([
+    var sh = openDb_().getSheetByName('RecognitionLog');
+    if (!sh) return;
+    sh.appendRow([
       new Date(), provider, model || '', photoBytes, cards, latency,
       usage ? usage.input : '', usage ? usage.output : '', cost || '', status, errorCode || '', groupId || ''
     ]);
@@ -1140,10 +1217,15 @@ var SHEET_SCHEMAS = {
 
 var HEADER_ROWS = 2;
 
+/**
+ * 在「綁定試算表的 Apps Script」中執行（擴充功能 → Apps Script）。
+ * 只使用這份試算表（spreadsheets.currentonly）與程式自己建立的 Drive 資料夾（drive.file）。
+ */
 function setup() {
   var props = PropertiesService.getScriptProperties();
 
-  var ss = getOrCreateSpreadsheet_(props);
+  var ss = openDb_();
+  ss.setSpreadsheetTimeZone('Asia/Taipei');
   Object.keys(SHEET_SCHEMAS).forEach(function (name) {
     ensureSheet_(ss, name, SHEET_SCHEMAS[name]);
   });
@@ -1151,22 +1233,10 @@ function setup() {
   if (defaultSheet && ss.getSheets().length > 1) ss.deleteSheet(defaultSheet);
 
   var root = getOrCreateRootFolder_(props);
-  ['cards', 'photos', 'backup'].forEach(function (n) { getOrCreateChild_(root, n); });
+  ['cards', 'photos', 'backup'].forEach(function (n) { driveChildFolder_(root, n); });
 
-  ensureOnEditTrigger_(ss);
   Logger.log('完成。試算表：' + ss.getUrl());
-  Logger.log('Drive 資料夾：' + root.getUrl());
-}
-
-function getOrCreateSpreadsheet_(props) {
-  var id = props.getProperty('SHEET_ID');
-  if (id) {
-    try { return SpreadsheetApp.openById(id); } catch (e) { /* 已被刪除，重建 */ }
-  }
-  var ss = SpreadsheetApp.create('名片夾資料庫');
-  ss.setSpreadsheetTimeZone('Asia/Taipei');
-  props.setProperty('SHEET_ID', ss.getId());
-  return ss;
+  Logger.log('Drive 資料夾：https://drive.google.com/drive/folders/' + root);
 }
 
 function ensureSheet_(ss, name, schema) {
@@ -1191,26 +1261,20 @@ function ensureSheet_(ss, name, schema) {
   sh.getRange(2, 1, 1, sh.getLastColumn()).setFontWeight('bold').setBackground('#eef3f8');
 }
 
+/** 名片夾根資料夾（由程式建立，drive.file 才能存取）。 */
 function getOrCreateRootFolder_(props) {
   var id = props.getProperty('DRIVE_FOLDER_ID');
-  if (id) {
-    try { return DriveApp.getFolderById(id); } catch (e) { /* 重建 */ }
-  }
-  var folder = DriveApp.createFolder('名片夾');
-  props.setProperty('DRIVE_FOLDER_ID', folder.getId());
+  if (id && driveGet_(id)) return id;
+  var folder = driveCreateFolder_('名片夾', null);
+  props.setProperty('DRIVE_FOLDER_ID', folder);
   return folder;
 }
 
-function getOrCreateChild_(parent, name) {
-  var it = parent.getFoldersByName(name);
-  return it.hasNext() ? it.next() : parent.createFolder(name);
-}
-
-function ensureOnEditTrigger_(ss) {
-  var exists = ScriptApp.getProjectTriggers().some(function (t) {
-    return t.getHandlerFunction() === 'onContactsEdit';
-  });
-  if (!exists) ScriptApp.newTrigger('onContactsEdit').forSpreadsheet(ss).onEdit().create();
+/**
+ * 簡單觸發器：在試算表手動編輯時自動執行，不需要額外授權。
+ */
+function onEdit(e) {
+  onContactsEdit(e);
 }
 
 /** Contacts 被手動編輯時更新 updated_at（docs/01 F4.4）。 */
@@ -1231,18 +1295,13 @@ function onContactsEdit(e) {
 
 // ===== store_drive.js =====
 /**
- * Google Drive 圖檔存取（docs/03 §6）。
+ * Google Drive 圖檔存取（docs/03 §6）。透過 drive_api.js，只用 drive.file 權限。
  */
 
-function rootFolder_() {
+function rootFolderId_() {
   var id = PropertiesService.getScriptProperties().getProperty('DRIVE_FOLDER_ID');
   if (!id) throw new AppError('INTERNAL', '尚未執行 setup()，找不到 Drive 資料夾');
-  return DriveApp.getFolderById(id);
-}
-
-function childFolder_(parent, name) {
-  var it = parent.getFoldersByName(name);
-  return it.hasNext() ? it.next() : parent.createFolder(name);
+  return id;
 }
 
 /** 存到 名片夾/<kind>/yyyy/MM/<name>，回傳檔案 ID。 */
@@ -1250,12 +1309,11 @@ function saveImage_(img, kind, name) {
   if (!img || !img.base64) throw new AppError('BAD_REQUEST', '缺少圖片');
   var mime = /^image\/(jpeg|png|webp)$/.test(img.mime || '') ? img.mime : 'image/jpeg';
   var now = new Date();
-  var folder = childFolder_(
-    childFolder_(childFolder_(rootFolder_(), kind), Utilities.formatDate(now, 'Asia/Taipei', 'yyyy')),
+  var folder = driveChildFolder_(
+    driveChildFolder_(driveChildFolder_(rootFolderId_(), kind), Utilities.formatDate(now, 'Asia/Taipei', 'yyyy')),
     Utilities.formatDate(now, 'Asia/Taipei', 'MM')
   );
-  var blob = Utilities.newBlob(Utilities.base64Decode(img.base64), mime, name);
-  return folder.createFile(blob).getId();
+  return driveUpload_(folder, name, mime, Utilities.base64Decode(img.base64));
 }
 
 function stamp_() {
@@ -1264,46 +1322,44 @@ function stamp_() {
 
 /** 檔案是否位於根資料夾底下（防止讀取其他 Drive 檔案）。 */
 function isUnderRoot_(file) {
-  var rootId = rootFolder_().getId();
-  var queue = [];
-  var parents = file.getParents();
-  while (parents.hasNext()) queue.push(parents.next());
-  var depth = 0;
-  while (queue.length && depth < 6) {
+  var rootId = rootFolderId_();
+  var queue = (file.parents || []).slice();
+  for (var depth = 0; queue.length && depth < 6; depth++) {
     var next = [];
     for (var i = 0; i < queue.length; i++) {
-      if (queue[i].getId() === rootId) return true;
-      var p = queue[i].getParents();
-      while (p.hasNext()) next.push(p.next());
+      if (queue[i] === rootId) return true;
+      var p = driveGet_(queue[i]);
+      if (p && p.parents) next = next.concat(p.parents);
     }
     queue = next;
-    depth++;
   }
   return false;
 }
 
 function trashFiles_(ids) {
   ids.forEach(function (id) {
-    try { DriveApp.getFileById(id).setTrashed(true); } catch (e) { /* 已不存在 */ }
+    try { driveTrash_(id); } catch (e) { /* 已不存在 */ }
   });
 }
 
 function handleGetImage(req) {
-  var file;
-  try {
-    file = DriveApp.getFileById(String(req.fileId || ''));
-  } catch (e) {
-    throw new AppError('NOT_FOUND', '找不到圖片');
-  }
-  if (!isUnderRoot_(file)) throw new AppError('NOT_FOUND', '找不到圖片');
-  if (req.size === 'thumb') {
+  var file = null;
+  try { file = driveGet_(String(req.fileId || '')); } catch (e) { file = null; }
+  if (!file || file.mimeType === FOLDER_MIME_ || !isUnderRoot_(file)) throw new AppError('NOT_FOUND', '找不到圖片');
+  if (req.size === 'thumb' && file.thumbnailLink) {
     try {
-      var thumb = file.getThumbnail();
-      if (thumb) return { mime: thumb.getContentType() || 'image/png', base64: Utilities.base64Encode(thumb.getBytes()) };
+      var t = UrlFetchApp.fetch(file.thumbnailLink, {
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true
+      });
+      if (t.getResponseCode() === 200) {
+        var tb = t.getBlob();
+        return { mime: tb.getContentType() || 'image/png', base64: Utilities.base64Encode(tb.getBytes()) };
+      }
     } catch (e) { /* 縮圖尚未產生，改回傳原圖 */ }
   }
-  var blob = file.getBlob();
-  return { mime: blob.getContentType(), base64: Utilities.base64Encode(blob.getBytes()) };
+  var blob = driveDownload_(file.id);
+  if (!blob) throw new AppError('NOT_FOUND', '找不到圖片');
+  return { mime: blob.getContentType() || 'image/jpeg', base64: Utilities.base64Encode(blob.getBytes()) };
 }
 
 // ===== store_sheets.js =====
@@ -1313,10 +1369,11 @@ function handleGetImage(req) {
 
 var DATA_START_ROW = 3;
 
+/** 資料庫就是這個 Apps Script 綁定的試算表（spreadsheets.currentonly）。 */
 function openDb_() {
-  var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
-  if (!id) throw new AppError('INTERNAL', '尚未執行 setup()，找不到試算表');
-  return SpreadsheetApp.openById(id);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new AppError('INTERNAL', '後端程式必須從試算表的「擴充功能 → Apps Script」建立');
+  return ss;
 }
 
 function sheet_(name) {

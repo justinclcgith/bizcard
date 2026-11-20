@@ -91,8 +91,8 @@ function handlePing() {
   var props = PropertiesService.getScriptProperties();
   var sheetOk = false;
   var driveOk = false;
-  try { SpreadsheetApp.openById(props.getProperty('SHEET_ID')); sheetOk = true; } catch (e) { /* 未設定 */ }
-  try { DriveApp.getFolderById(props.getProperty('DRIVE_FOLDER_ID')); driveOk = true; } catch (e) { /* 未設定 */ }
+  try { sheetOk = !!openDb_().getSheetByName('Contacts'); } catch (e) { /* 未執行 setup */ }
+  try { driveOk = !!driveGet_(props.getProperty('DRIVE_FOLDER_ID')); } catch (e) { /* 未執行 setup */ }
   var providers = [];
   if (props.getProperty('ANTHROPIC_API_KEY')) providers.push('claude');
   if (props.getProperty('GEMINI_API_KEY')) providers.push('gemini');
@@ -136,9 +136,8 @@ function jsonOut_(obj) {
 /** 寫入 Log 工作表；不得包含金鑰或權杖。 */
 function logEvent_(level, where, detail) {
   try {
-    var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
-    if (!id) return;
-    var sh = SpreadsheetApp.openById(id).getSheetByName('Log');
+    var sh = openDb_().getSheetByName('Log');
+    if (!sh) return;
     var msg = detail && detail.stack ? String(detail.stack).slice(0, 500) : String(detail).slice(0, 500);
     sh.appendRow([new Date(), level, where, msg]);
   } catch (e) { /* 記錄失敗不影響主流程 */ }

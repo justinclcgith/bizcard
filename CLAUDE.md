@@ -1,7 +1,7 @@
 # CLAUDE.md — 個人名片管理系統
 
 ## 專案概要
-個人用名片管理 PWA。前端在 `app/`（Vite + TypeScript + Preact，部署到 GitHub Pages），後端在 `gas/`（Google Apps Script，部署到 JC 個人 Google 帳號的 Web App）。AI 辨識由 GAS 呼叫 Claude 或 Gemini。完整規格在 `docs/`，動手前先讀 `docs/02-架構設計.md` 與當前階段的 `docs/06-開發任務.md`。
+個人用名片管理 PWA。前端在 `app/`（Vite + TypeScript + Preact，部署到 GitHub Pages），後端在 `gas/`（Google Apps Script，綁定在 JC Google 帳號的「名片夾」試算表並部署為 Web App；只用最小權限，見 docs/02 §4）。AI 辨識由 GAS 呼叫 Claude 或 Gemini。完整規格在 `docs/`，動手前先讀 `docs/02-架構設計.md` 與當前階段的 `docs/06-開發任務.md`。
 
 ## 絕對規則
 1. **這是公開 repo。** 不得提交任何金鑰、GAS 部署網址、存取權杖、真實名片圖片或真實聯絡人資料。測試圖片放 `testdata/`（已列入 `.gitignore`），或由 JC 在 Drive 提供。

@@ -4,10 +4,11 @@
 
 var DATA_START_ROW = 3;
 
+/** 資料庫就是這個 Apps Script 綁定的試算表（spreadsheets.currentonly）。 */
 function openDb_() {
-  var id = PropertiesService.getScriptProperties().getProperty('SHEET_ID');
-  if (!id) throw new AppError('INTERNAL', '尚未執行 setup()，找不到試算表');
-  return SpreadsheetApp.openById(id);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss) throw new AppError('INTERNAL', '後端程式必須從試算表的「擴充功能 → Apps Script」建立');
+  return ss;
 }
 
 function sheet_(name) {
