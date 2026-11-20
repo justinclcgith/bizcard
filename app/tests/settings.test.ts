@@ -31,7 +31,10 @@ describe('settings', () => {
     expect(isValidGasUrl('http://script.google.com/macros/s/x/exec')).toBe(false);
     // Google Workspace 帳號的網址
     expect(isValidGasUrl('https://script.google.com/a/macros/example.com/s/AKfy_1-2/exec')).toBe(true);
+    expect(isValidGasUrl('https://script.google.com/a/example.com/macros/s/AKfy_1-2/exec')).toBe(true);
     expect(isValidGasUrl('https://script.google.com/a/macros/example.com/s/AKfy/exec?x=1')).toBe(false);
+    // 編輯器測試用的 /dev 網址不能用
+    expect(isValidGasUrl('https://script.google.com/a/example.com/macros/s/AKfy_1-2/dev')).toBe(false);
   });
   it('解析設定 QR', () => {
     expect(parseSetupPayload(JSON.stringify({ url: URL_OK, token: TOKEN }))).toEqual({ gasUrl: URL_OK, token: TOKEN });
@@ -39,7 +42,7 @@ describe('settings', () => {
     expect(parseSetupPayload('not json')).toBeNull();
   });
   it('容忍記事 App 造成的格式變化', () => {
-    const ws = 'https://script.google.com/a/macros/example.com/s/AKfycbx_abc-123/exec';
+    const ws = 'https://script.google.com/a/example.com/macros/s/AKfycbx_abc-123/exec';
     const want = { gasUrl: ws, token: TOKEN };
     // 彎引號
     expect(parseSetupPayload(`{\u201Curl\u201D:\u201C${ws}\u201D,\u201Ctoken\u201D:\u201C${TOKEN}\u201D}`)).toEqual(want);

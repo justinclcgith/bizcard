@@ -37,10 +37,10 @@ export function saveSettings(s: Settings): boolean {
 /** 只接受 Apps Script Web App 網址，避免把權杖送到別的地方。 */
 /**
  * Apps Script 網頁應用程式網址。個人帳號為 /macros/s/<ID>/exec，
- * Google Workspace 帳號為 /a/macros/<網域>/s/<ID>/exec。
+ * Google Workspace 帳號為 /a/<網域>/macros/s/<ID>/exec（也接受 /a/macros/<網域>/s/<ID>/exec）。
  */
-const GAS_URL_RE = /^https:\/\/script\.google\.com\/(?:a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec$/;
-const GAS_URL_IN_TEXT = /https:\/\/script\.google\.com\/(?:a\/macros\/[A-Za-z0-9.-]+|macros)\/s\/[A-Za-z0-9_-]+\/exec/;
+const GAS_URL_RE = /^https:\/\/script\.google\.com\/(?:a\/macros\/[A-Za-z0-9.-]+|a\/[A-Za-z0-9.-]+\/macros|macros)\/s\/[A-Za-z0-9_-]+\/exec$/;
+const GAS_URL_IN_TEXT = /https:\/\/script\.google\.com\/(?:a\/macros\/[A-Za-z0-9.-]+|a\/[A-Za-z0-9.-]+\/macros|macros)\/s\/[A-Za-z0-9_-]+\/exec/;
 
 export function isValidGasUrl(url: string): boolean {
   return GAS_URL_RE.test(url.trim());
